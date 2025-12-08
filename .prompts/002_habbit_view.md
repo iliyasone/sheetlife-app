@@ -1,60 +1,234 @@
-# First product
+# **First Product Specification**
 
-Todays Task is implement a main interface and Habit View!
+This document defines the work for implementing:
 
-## First look
+1. The **main interface** (layouts, file explorer, routing)
+2. The **Habit View** (first real View)
+3. The **local-first storage model**
 
-On oppening "sheetlife.app" it should has a list of all files on the left.
-Internal explorer, like in a vscode or other code editor. Design should be minimal.
+This is the foundation for all future Views.
 
-it should be already opened a temporal *.xlsx file, indicating that now we are in it.
+---
 
-There should be a clear button like "Add a habit". 
+# **1. Architecture Overview**
 
-## View Commom layout
+Sheetlife is a *local-first* application.
+This means:
 
+* The **browser’s localStorage is the primary working storage**, even in production.
+* Remote storage and syncing will be added later, but local cached files will always be the main thing the user interacts with.
+* Views operate directly on files stored locally.
 
-Regardless of View, we wanna have a set of common actions:
--- file explorer
--- right click on any file in the explorer and click "download button"
--- sync status (make it not sync icon, later we will pick it up)
+A “View” is a UI + logic module for working with a particular type of file (e.g. `habits.xlsx`).
+Each file is associated with the View that should open it.
 
-app/views/layout.tsx — layout for all “view pages”
-app/views/[viewType]/[fileId]/page.tsx — a specific view for a specific file
+---
 
-So you get a hierarchy:
-Global layout: header, login, very top-level things
-Views layout: file explorer + sync status + “chrome” around all views
-View page: the actual embedded view (Habits, whatever) rendered inside that shell
+# **2. Routing & Layout Structure (Next.js App Router)**
 
-## Proposed Habit File Excel Structure
-
-Habit View is just a nice view over a history of habits - xlsx file:
-
-first page is a set of all habits:
+Directory structure:
 
 ```
-habit-id	icon	name	description	created_at	category	period deprecated_at
-make-bad	🧹🛏️	Make a bad	Make a bad right after waking up	08-Dec-25	Morning Habits	day
+app/
+  layout.tsx                  → Global layout (header, login)
+  views/
+    layout.tsx                → Shared shell for all Views
+    [viewType]/
+      [fileId]/
+        page.tsx              → Concrete View (Habit View first)
 ```
 
-Second list is a history of all of them
+### `app/layout.tsx` (Global)
+
+Always visible:
+
+* Header
+* Login / user menu
+
+### `app/views/layout.tsx` (View Shell)
+
+Shared across all Views:
+
+* File Explorer (left sidebar), listing all known files
+* Right-click context menu on files (Download)
+* Sync status icon placeholder
+* Main area where the active View renders
+
+### `app/views/[viewType]/[fileId]/page.tsx`
+
+Loads the file from localStorage and renders the correct View component.
+
+---
+
+# **3. Local File Index (Important)**
+
+The app keeps a **file index** in localStorage.
+This index is how the app knows:
+
+* which files exist
+* their names
+* which view should open each file
+
+Example structure:
+
+```ts
+type FileIndexEntry = {
+  id: string
+  name: string         // e.g. "habits.xlsx"
+  viewType: string     // e.g. "habits"
+  storageType: "local"
+  createdAt: string
+}
+
+type FileIndex = {
+  files: FileIndexEntry[]
+}
+```
+
+The File Explorer reads from this index, not from the filesystem.
+
+---
+
+# **4. File Creation Model**
+
+Views create their own file types.
+
+### Habit View → `habits.xlsx`
+
+Behavior:
+
+* When the user first arrives at `sheetlife.app`, they are already *in Habit View*, but there is no file yet.
+* When they click **Add Habit** for the first time:
+
+  1. A new file is created (`habits.xlsx`)
+  2. Initial sheets are generated (see below)
+  3. A new file entry is added to the file index
+  4. The View reloads with this file
+
+Future views will create other file types similarly.
+
+---
+
+# **5. Habit File Structure (`habits.xlsx`)**
+
+The file contains two main sheets (third optional later):
+
+### Sheet 1 — `habits`
 
 ```
-datetime	habit-id	status	comment
-08-Dec-25	make-bad	OK	
+habit-id    icon   name         description                     created_at   category         period   deprecated_at
+make-bed    🛏️     Make bed     Make the bed each morning       08-Dec-25    Morning Habits   day      (optional)
 ```
 
-File should be stored in LocalStorage of a browser for now
+### Sheet 2 — `history`
 
-## Habit View
+```
+datetime    habit-id   status   comment
+08-Dec-25   make-bed   OK       ""
+```
 
-By default Habit View should have a habit lists in the vertical bar and day of weeks at the horizontal vertial things.
+### Optional Sheet — `view`
 
-You can click and mark habit as done at any moment. You may move habit order, remove it from the view, etc.
+For storing:
 
-You probably will need some kinda "view" sheet in xlsx file to keep all info about how viewing it (like last opening view, hidden habits, colors, etc)
+* custom habit order
+* hidden habits
+* colors
+* last opened sub-view
+* etc.
 
-There should also be other "sub-views":
-- a month per habit: a nice way to see you progress over a month for a specific habbit
-- year per habit: github like "commit history", where you just see last 365 and you commitment in your habit. Probably should be option where you can select only subset of a habits here, or even one habit
+This can be added later but the structure should be prepared for it.
+
+---
+
+# **6. Habit View Requirements**
+
+### Layout
+
+A week-based grid:
+
+* Habits listed vertically on the left
+* Days of the week horizontally at the top
+* Each cell represents (habit × day)
+* Clicking a cell inserts an entry into `history`
+
+### Interactions
+
+* **Add Habit**
+
+  * Creates file if it doesn’t yet exist
+  * Appends row to `habits` sheet
+* **Mark habit done**
+
+  * Adds row to `history` sheet
+* **Reorder habits**
+
+  * Persist in `view` sheet
+* **Hide habit**
+
+  * Persist in `view` sheet
+* **Remove from view** (not deleting habit)
+
+### Additional sub-views
+
+* Month-per-habit calendar
+* Year-per-habit heatmap (GitHub-style)
+* Ability to view one or multiple habits only
+
+Habit View architecture should be prepared for these, but they are **not** part of this sprint.
+
+---
+
+# **7. LocalStorage as Canonical Storage**
+
+Important clarification:
+
+LocalStorage is **not** a temporary fallback.
+It is the main storage layer throughout the app’s lifetime.
+
+Phase 1:
+
+* LocalStorage is the **only** storage
+* Future: remote storages may sync with it, but Views still operate on the cached local file
+
+This means:
+
+* File reads/writes must be optimized and reliable
+* File index and file content must persist across reloads
+* All UI must work fully offline
+
+---
+
+# **8. Deliverables for This Task**
+
+### Layout & Routing
+
+* [ ] Implement global layout
+* [ ] Implement Views shell (explorer, sync indicator, chrome)
+* [ ] Implement dynamic routing: `/views/[viewType]/[fileId]`
+
+### Local File System Layer
+
+* [ ] File index stored in localStorage
+* [ ] Create/delete/read/write local files
+* [ ] Explorer UI listing all files
+* [ ] Right-click → Download file
+
+### Habit View
+
+* [ ] Sheet loader/writer for `.xlsx`
+* [ ] Week-grid UI
+* [ ] Add habit
+* [ ] Mark habit done
+* [ ] Habit reordering (persisted)
+* [ ] Prepare for `view` sheet metadata (minimal implementation ok)
+* [ ] Additional UI
+
+---
+
+# **9. Clarification**
+
+The question “Who decides which view opens a file?”
+→ **Answer: the File Index** (stored in localStorage).
+
+This keeps the actual file formats domain-pure.
