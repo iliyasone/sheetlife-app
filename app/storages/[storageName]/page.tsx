@@ -4,9 +4,9 @@ import { getAccessTokenFromCookies } from "@/lib/auth-cookies";
 import { FileMetadata, listFiles } from "@/lib/core-api";
 
 type StoragePageProps = {
-  params: {
+  params: Promise<{
     storageName: string;
-  };
+  }>;
 };
 
 export const dynamic = "force-dynamic";
@@ -17,7 +17,8 @@ export default async function StoragePage({ params }: StoragePageProps) {
     redirect("/");
   }
 
-  const storageName = decodeURIComponent(params.storageName);
+  const { storageName: rawStorageName } = await params;
+  const storageName = decodeURIComponent(rawStorageName);
 
   let files: FileMetadata[] = [];
   let error: string | null = null;

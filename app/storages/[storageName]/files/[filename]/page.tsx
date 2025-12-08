@@ -4,10 +4,10 @@ import { getAccessTokenFromCookies } from "@/lib/auth-cookies";
 import { FileMetadata, getFileContent, listFiles } from "@/lib/core-api";
 
 type FilePageProps = {
-  params: {
+  params: Promise<{
     storageName: string;
     filename: string;
-  };
+  }>;
 };
 
 export const dynamic = "force-dynamic";
@@ -18,8 +18,9 @@ export default async function FileRawViewPage({ params }: FilePageProps) {
     redirect("/");
   }
 
-  const storageName = decodeURIComponent(params.storageName);
-  const filename = decodeURIComponent(params.filename);
+  const { storageName: rawStorageName, filename: rawFilename } = await params;
+  const storageName = decodeURIComponent(rawStorageName);
+  const filename = decodeURIComponent(rawFilename);
 
   let metadata: FileMetadata | null = null;
   let metadataError: string | null = null;
